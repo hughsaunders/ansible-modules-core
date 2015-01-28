@@ -93,6 +93,12 @@ options:
        - Path to a .deb package on the remote machine.
      required: false
      version_added: "1.6"
+  update_retries:
+    description:
+      - Retry apt cache updates this many times. This is to avoid marking a node as failed after a hashsum mistmatch type error.
+    required: false
+    default: 3
+    version_added: 2.0
 requirements: [ python-apt, aptitude ]
 author: "Matthew Williams (@mgwilliams)"
 notes:
@@ -550,7 +556,8 @@ def main():
             install_recommends = dict(default='yes', aliases=['install-recommends'], type='bool'),
             force = dict(default='no', type='bool'),
             upgrade = dict(choices=['no', 'yes', 'safe', 'full', 'dist']),
-            dpkg_options = dict(default=DPKG_OPTIONS)
+            dpkg_options = dict(default=DPKG_OPTIONS),
+            update_retries = dict(default=3, type='int')
         ),
         mutually_exclusive = [['package', 'upgrade', 'deb']],
         required_one_of = [['package', 'upgrade', 'update_cache', 'deb']],
@@ -625,7 +632,15 @@ def main():
                         updated_cache_time = int(time.mktime(mtimestamp.timetuple()))
 
             if cache_valid is not True:
-                cache.update()
+                for retry in xrange(p['update_retries']):
+                    try:
+                        cache.update()
+                        break
+                    except apt.cache.FetchFailedException:
+                        pass
+                else:
+                    #out of retries, pass on the exception
+                    raise
                 cache.open(progress=None)
                 updated_cache = True
                 updated_cache_time = int(time.mktime(now.timetuple()))
